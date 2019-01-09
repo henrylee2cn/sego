@@ -15,14 +15,16 @@ import (
 var (
 	segmenter  = sego.Segmenter{}
 	numThreads = runtime.NumCPU()
-	task       = make(chan []byte, numThreads)
-	numRuns    = 10
+	task       = make(chan []byte, numThreads*40)
+	done       = make(chan bool, numThreads)
+	numRuns    = 50
 )
 
 func worker() {
-	for {
-		segmenter.Segment(<-task)
+	for line := range task {
+		segmenter.Segment(line)
 	}
+	done <- true
 }
 
 func main() {
@@ -65,6 +67,12 @@ func main() {
 		for _, l := range lines {
 			task <- l
 		}
+	}
+	close(task)
+
+	// 确保分词完成
+	for i := 0; i < numThreads; i++ {
+		<-done
 	}
 
 	// 记录时间并计算分词速度

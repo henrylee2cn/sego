@@ -42,7 +42,7 @@ func (seg *Segmenter) Dictionary() *Dictionary {
 // 词典的格式为（每个分词一行）：
 //	分词文本 频率 词性
 func (seg *Segmenter) LoadDictionary(files string) {
-	seg.dict = new(Dictionary)
+	seg.dict = NewDictionary()
 	for _, file := range strings.Split(files, ",") {
 		log.Printf("载入sego词典 %s", file)
 		dictFile, err := os.Open(file)
@@ -87,26 +87,26 @@ func (seg *Segmenter) LoadDictionary(files string) {
 			// 将分词添加到字典中
 			words := splitTextToWords([]byte(text))
 			token := Token{text: words, frequency: frequency, pos: pos}
-			seg.dict.addToken(&token)
+			seg.dict.addToken(token)
 		}
 	}
 
 	// 计算每个分词的路径值，路径值含义见Token结构体的注释
 	logTotalFrequency := float32(math.Log2(float64(seg.dict.totalFrequency)))
-	for _, token := range seg.dict.tokens {
+	for i := range seg.dict.tokens {
+		token := &seg.dict.tokens[i]
 		token.distance = logTotalFrequency - float32(math.Log2(float64(token.frequency)))
 	}
 
 	// 对每个分词进行细致划分，用于搜索引擎模式，该模式用法见Token结构体的注释。
-	for _, token := range seg.dict.tokens {
+	for i := range seg.dict.tokens {
+		token := &seg.dict.tokens[i]
 		segments := seg.segmentWords(token.text, true)
 
 		// 计算需要添加的子分词数目
 		numTokensToAdd := 0
 		for iToken := 0; iToken < len(segments); iToken++ {
-			if len(segments[iToken].token.text) > 1 {
-				// 略去字元长度为一的分词
-				// TODO: 这值得进一步推敲，特别是当字典中有英文复合词的时候
+			if len(segments[iToken].token.text) > 0 {
 				numTokensToAdd++
 			}
 		}
@@ -115,8 +115,8 @@ func (seg *Segmenter) LoadDictionary(files string) {
 		// 添加子分词
 		iSegmentsToAdd := 0
 		for iToken := 0; iToken < len(segments); iToken++ {
-			if len(segments[iToken].token.text) > 1 {
-				token.segments[iSegmentsToAdd] = &segments[iSegmentsToAdd]
+			if len(segments[iToken].token.text) > 0 {
+				token.segments[iSegmentsToAdd] = &segments[iToken]
 				iSegmentsToAdd++
 			}
 		}
@@ -134,6 +134,11 @@ func (seg *Segmenter) LoadDictionary(files string) {
 //	[]Segment	划分的分词
 func (seg *Segmenter) Segment(bytes []byte) []Segment {
 	return seg.internalSegment(bytes, false)
+}
+
+
+func (seg *Segmenter) InternalSegment(bytes []byte, searchMode bool) []Segment {
+	return seg.internalSegment(bytes, searchMode)
 }
 
 func (seg *Segmenter) internalSegment(bytes []byte, searchMode bool) []Segment {
@@ -245,9 +250,8 @@ func maxInt(a, b int) int {
 
 // 将文本划分成字元
 func splitTextToWords(text Text) []Text {
-	output := make([]Text, len(text))
+	output := make([]Text, 0, len(text)/3)
 	current := 0
-	currentWord := 0
 	inAlphanumeric := true
 	alphanumericStart := 0
 	for current < len(text) {
@@ -262,12 +266,10 @@ func splitTextToWords(text Text) []Text {
 			if inAlphanumeric {
 				inAlphanumeric = false
 				if current != 0 {
-					output[currentWord] = toLower(text[alphanumericStart:current])
-					currentWord++
+					output = append(output, toLower(text[alphanumericStart:current]))
 				}
 			}
-			output[currentWord] = text[current : current+size]
-			currentWord++
+			output = append(output, text[current:current+size])
 		}
 		current += size
 	}
@@ -275,12 +277,11 @@ func splitTextToWords(text Text) []Text {
 	// 处理最后一个字元是英文的情况
 	if inAlphanumeric {
 		if current != 0 {
-			output[currentWord] = toLower(text[alphanumericStart:current])
-			currentWord++
+			output = append(output, toLower(text[alphanumericStart:current]))
 		}
 	}
 
-	return output[:currentWord]
+	return output
 }
 
 // 将英文词转化为小写
